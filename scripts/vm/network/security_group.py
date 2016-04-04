@@ -166,6 +166,7 @@ def destroy_network_rules_for_vm(vm_name, vif=None):
     vmchain_default = None
 
     delete_rules_for_vm_in_bridge_firewall_chain(vm_name)
+    delete_rules_for_vif_in_bridge_firewall_chain(vif)
     if vm_name.startswith('i-'):
         vmchain_default = '-'.join(vm_name.split('-')[:-1]) + "-def"
 
@@ -464,7 +465,9 @@ def default_network_rules(vm_name, vm_id, vm_ip, vm_mac, vif, brname, sec_ips):
             logging.debug("Failed to log default network rules, ignoring")
 
     try:
+        execute("iptables -A " + brfw + "-OUT" + " -m physdev --physdev-is-bridged --physdev-out " + vif + " -m set --set myipset src")
         execute("iptables -A " + brfw + "-OUT" + " -m physdev --physdev-is-bridged --physdev-out " + vif + " -j " + vmchain_default)
+        execute("iptables -A " + brfw + "-IN" + " -m physdev --physdev-is-bridged --physdev-in " + vif + " -m set --set myipset dst")
         execute("iptables -A " + brfw + "-IN" + " -m physdev --physdev-is-bridged --physdev-in " + vif + " -j " + vmchain_default)
         execute("iptables -A " + vmchain_default + " -m state --state RELATED,ESTABLISHED -j ACCEPT")
         #allow dhcp
@@ -536,6 +539,16 @@ def delete_rules_for_vm_in_bridge_firewall_chain(vmName):
             execute("iptables " + cmd)
         except:
               logging.exception("Ignoring failure to delete rules for vm " + vmName)
+
+def delete_rules_for_vif_in_bridge_firewall_chain(vif):
+
+    delcmd = """iptables-save | awk '/BF(.*)%s(.*)physdev-is-bridged(.*)/ { sub(/-A/, "-D", $1) ; print }'""" % vif
+    delcmds = filter(None, execute(delcmd).split('\n'))
+    for cmd in delcmds:
+        try:
+            execute("iptables " + cmd)
+        except:
+              logging.exception("Ignoring failure to delete rules for vif " + vif)
 
 def rewrite_rule_log_for_vm(vm_name, new_domid):
     logfilename = logpath + vm_name + ".log"
@@ -993,7 +1006,7 @@ def addFWFramework(brname):
             execute("iptables -I FORWARD -i " + brname + " -m physdev --physdev-is-bridged -j " + brfw)
             execute("iptables -I FORWARD -o " + brname + " -m physdev --physdev-is-bridged -j " + brfw)
             phydev = execute("brctl show | awk '/^%s[ \t]/ {print $4}'" % brname ).strip()
-            execute("iptables -A " + brfw + " -m state --state RELATED,ESTABLISHED -j ACCEPT")
+#            execute("iptables -A " + brfw + " -m state --state RELATED,ESTABLISHED -j ACCEPT")
             execute("iptables -A " + brfw + " -m physdev --physdev-is-bridged --physdev-is-in -j " + brfwin)
             execute("iptables -A " + brfw + " -m physdev --physdev-is-bridged --physdev-is-out -j " + brfwout)
             execute("iptables -A " + brfw + " -m physdev --physdev-is-bridged --physdev-out " + phydev + " -j ACCEPT")
